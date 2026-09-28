@@ -301,6 +301,12 @@ const TOOLS = [
         inputSchema: { type: 'object', properties: { owner: { type: 'string' }, repo: { type: 'string' }, workflow: { type: 'string' }, branch: { type: 'string' }, status: { type: 'string' }, limit: { type: 'integer' } } }
     },
     {
+        name: 'delete_workflow_run',
+        annotations: { title: 'Delete a workflow run', readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
+        description: 'Deletes a GitHub Actions workflow run (and its logs) from the run history. Use list_workflow_runs to find run ids first.',
+        inputSchema: { type: 'object', properties: { owner: { type: 'string' }, repo: { type: 'string' }, run_id: { type: 'integer', description: 'Workflow run id to delete' } }, required: ['run_id'] }
+    },
+    {
         name: 'create_pull_request',
         annotations: { title: 'Create pull request', readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
         description: 'Creates a new branch, changes one or more files, and opens ONE Pull Request (base defaults to main). Use "files": a list of {path, edits} to change several files at once (for example a Kotlin file and AndroidManifest.xml). Each edit is a {find, replace} snippet applied on the server; "find" must match the file exactly once. Only pass full "content" for new or small files.',
@@ -1164,6 +1170,18 @@ async function listWorkflowRuns(args) {
     return JSON.stringify((data.workflow_runs || []).map(runSummary), null, 2);
 }
 
+async function deleteWorkflowRun(args) {
+    const { owner, repo } = resolveRepo(args);
+    if (!args.run_id) throw new Error('run_id is required');
+    const api = `https://api.github.com/repos/${owner}/${repo}`;
+    const del = await fetch(`${api}/actions/runs/${encodeURIComponent(args.run_id)}`, { method: 'DELETE', headers: ghHeaders() });
+    if (del.status !== 204) {
+        const d = await del.json().catch(() => ({}));
+        throw new Error(`Delete workflow run ${args.run_id}: ${d.message || del.status}`);
+    }
+    return JSON.stringify({ status: 'deleted', run_id: args.run_id });
+}
+
 async function createPullRequest(args) {
     const { owner, repo } = resolveRepo(args);
     const api = `https://api.github.com/repos/${owner}/${repo}`;
@@ -1271,6 +1289,7 @@ async function handleMessage(msg) {
                     else if (name === 'add_comment') text = await addComment(args);
                     else if (name === 'list_releases') text = await listReleases(args);
                     else if (name === 'list_workflow_runs') text = await listWorkflowRuns(args);
+                    else if (name === 'delete_workflow_run') text = await deleteWorkflowRun(args);
                     else if (name === 'preview_bulk_rename') text = await previewBulkRename(args);
                     else if (name === 'apply_bulk_rename') text = await applyBulkRename(args);
                     else throw new Error(`Unknown tool: ${name}`);
@@ -1330,4 +1349,5 @@ app.listen(PORT, () => {
     if (!GITHUB_PAT) console.warn('WARNING: GITHUB_PAT is not set');
     if (!MCP_SECRET) console.warn('WARNING: MCP_SECRET is not set, /mcp is open to anyone with the URL');
 });
-            
+
+                                             
