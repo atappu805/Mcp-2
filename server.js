@@ -22,7 +22,7 @@ app.use((req, res, next) => {
 const GITHUB_PAT = process.env.GITHUB_PAT;                 // required
 const MCP_SECRET = process.env.MCP_SECRET || '';           // recommended
 const DEFAULT_OWNER = 'atappu805';
-const DEFAULT_REPO = 'PixelMusic';
+const DEFAULT_REPO = 'Clean';
 const ALLOWED_REPOS = (process.env.ALLOWED_REPOS || `${DEFAULT_OWNER}/${DEFAULT_REPO}`)
     .split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
 // Repos Spark may READ for inspiration/comparison but never write to, even if ALLOW_MAIN_COMMITS is on.
@@ -72,7 +72,7 @@ const TOOLS = [
     {
         name: 'get_file_contents',
         annotations: { title: 'Read file', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
-        description: 'Reads a file (or lists a directory) in a GitHub repository. Works on the main repo or on a configured reference repo (pass owner/repo) for inspiration/comparison — never for writing. Large files are returned in chunks of about 28000 characters: use start_line and end_line to read further.',
+        description: 'Reads a file (or lists a directory) in a GitHub repository. Works on the main repo or on a configured reference repo (pass owner/repo) for inspiration/comparison — never for writing. Large files are returned in chunks of about 28000 characters: use start_line and end_line to read further, or set full=true to get the entire file at once (use for files you need to read completely).',
         inputSchema: {
             type: 'object',
             properties: {
@@ -81,7 +81,8 @@ const TOOLS = [
                 path: { type: 'string' },
                 ref: { type: 'string', description: 'Optional branch, tag or commit' },
                 start_line: { type: 'integer', description: 'Optional 1-based first line to return' },
-                end_line: { type: 'integer', description: 'Optional last line to return' }
+                end_line: { type: 'integer', description: 'Optional last line to return' },
+                full: { type: 'boolean', description: 'Set true to return the entire file without chunking (overrides start_line/end_line)' }
             },
             required: ['path']
         }
@@ -359,6 +360,11 @@ const TOOLS = [
 const MAX_CHARS = 28000; // keeps each reply under the ~32000 chars Gemini shows before truncating
 
 function sliceText(text, args) {
+    // full=true bypasses chunking entirely - returns the complete file
+    if (args.full === true) {
+        const lines = text.split('\n');
+        return `[lines 1-${lines.length} of ${lines.length}; ${text.length} chars in file; FULL]\n${text}`;
+    }
     const explicit = args.start_line !== undefined || args.end_line !== undefined;
     if (!explicit && text.length <= MAX_CHARS) return text;
 
@@ -1249,7 +1255,7 @@ async function handleMessage(msg) {
                     result: {
                         protocolVersion: SUPPORTED_VERSIONS.includes(requested) ? requested : SUPPORTED_VERSIONS[0],
                         capabilities: { tools: {} },
-                        serverInfo: { name: 'github-mcp-bridge', version: '2.1.0' }
+                        serverInfo: { name: 'github-mcp-bridge', version: '2.2.0' }
                     }
                 };
             }
@@ -1350,4 +1356,5 @@ app.listen(PORT, () => {
     if (!MCP_SECRET) console.warn('WARNING: MCP_SECRET is not set, /mcp is open to anyone with the URL');
 });
 
-                                             
+
+            
