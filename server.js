@@ -88,6 +88,38 @@ const TOOLS = [
         }
     },
     {
+        name: 'download_file',
+        annotations: { title: 'Download binary file', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+        description: 'Downloads any file (images, APKs, fonts, etc.) from a GitHub repository as base64. Use this for binary files like photos \u2014 get_file_contents only returns UTF-8 text and corrupts binary data. Works on the main repo or a configured reference repo (pass owner/repo).',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                owner: { type: 'string' },
+                repo: { type: 'string' },
+                path: { type: 'string', description: 'File path in the repo, e.g. assets/logo.png' },
+                ref: { type: 'string', description: 'Optional branch, tag or commit' }
+            },
+            required: ['path']
+        }
+    },
+    {
+        name: 'upload_file',
+        annotations: { title: 'Upload binary file', readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
+        description: 'Uploads a binary file (photo, APK, font, etc.) to a GitHub repository. Pass the file content as a base64 string in base64_content. Creates the file if it does not exist, or overwrites it if it does. Committing to the default branch (main) only works if the server owner enabled it.',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                owner: { type: 'string' },
+                repo: { type: 'string' },
+                branch: { type: 'string', description: 'Existing branch to commit to, for example main' },
+                path: { type: 'string', description: 'Destination path in the repo, e.g. assets/photo.jpg' },
+                base64_content: { type: 'string', description: 'File content as a base64-encoded string (no data: prefix)' },
+                commit_message: { type: 'string' }
+            },
+            required: ['branch', 'path', 'base64_content', 'commit_message']
+        }
+    },
+    {
         name: 'search_code',
         annotations: { title: 'Search code', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
         description: 'Regex search across all text source files of a repo (like grep -rn). Works on the main repo or on a configured reference repo (pass owner/repo) so you can find how another project does something and compare it to this codebase. Returns "path:line: text". Combine several terms in one call with |, for example "SmartImage|AsyncImage". Optional include narrows to paths containing a substring.',
@@ -415,6 +447,64 @@ async function getFileContents(args) {
         return JSON.stringify(file.entries.map(e => ({ name: e.name, path: e.path, type: e.type })), null, 2);
     }
     return sliceText(file.text, args);
+}
+
+async function downloadFile(args) {
+    const { owner, repo } = resolveRepo(args, { allowReference: true });
+    const path = args.path || '';
+    if (!path) throw new Error('path is required');
+    const api = `https://api.github.com/repos/${owner}/${repo}`;
+    const url = `${api}/contents/${encodePath(path)}${args.ref ? `?ref=${encodeURIComponent(args.ref)}` : ''}`;
+    const { res, data } = await ghJson(url);
+    if (!res.ok) {
+        const hint = res.status === 404 ? ' (wrong path, or GITHUB_PAT cannot access this repo)' : '';
+        throw new Error(`GitHub ${res.status} for ${owner}/${repo}:${path} - ${data.message || 'error'}${hint}`);
+    }
+    if (Array.isArray(data)) throw new Error(`"${path}" is a directory, not a file`);
+    let b64 = (data.encoding === 'base64' && data.content) ? data.content.replace(/\\s/g, '') : null;
+    let sha = data.sha, size = data.size;
+    if (!b64) {
+        if (!sha) throw new Error('GitHub did not return file content or blob sha');
+        const blob = await ghJson(`${api}/git/blobs/${sha}`);
+        if (!blob.res.ok || blob.data.encoding !== 'base64' || !blob.data.content)
+            throw new Error(`Could not fetch blob for "${path}": ${blob.data.message || blob.res.status}`);
+        b64 = blob.data.content.replace(/\\s/g, '');
+        size = blob.data.size;
+    }
+    return JSON.stringify({ path, sha, size_bytes: size, base64: b64 });
+}
+
+async function uploadFile(args) {
+    const { owner, repo } = resolveRepo(args);
+    const api = `https://api.github.com/repos/${owner}/${repo}`;
+    if (!args.branch) throw new Error('branch is required');
+    if (!args.path) throw new Error('path is required');
+    if (!args.base64_content) throw new Error('base64_content is required');
+    if (!args.commit_message) throw new Error('commit_message is required');
+    const b64 = String(args.base64_content).replace(/\\s/g, '');
+    if (!/^[A-Za-z0-9+/]*={0,2}$/.test(b64) || b64.length % 4 !== 0)
+        throw new Error('base64_content is not valid base64 (no data: prefix, raw base64 only)');
+    const info = await ghJson(api);
+    if (!info.res.ok) throw new Error(`Repo: ${info.data.message || info.res.status}`);
+    if (args.branch === info.data.default_branch && process.env.ALLOW_MAIN_COMMITS !== 'true') {
+        throw new Error(`Direct commits to "${args.branch}" are disabled on this server. Use create_pull_request, or ask the owner to set ALLOW_MAIN_COMMITS=true.`);
+    }
+    const ref = await ghJson(`${api}/git/ref/heads/${encodePath(args.branch)}`);
+    if (!ref.res.ok) throw new Error(`Branch "${args.branch}" not found (use create_pull_request to make a new branch)`);
+    const existing = await ghJson(`${api}/contents/${encodePath(args.path)}?ref=${encodeURIComponent(args.branch)}`);
+    const body = { message: args.commit_message, content: b64, branch: args.branch };
+    if (existing.res.ok && existing.data && existing.data.sha) body.sha = existing.data.sha;
+    const put = await ghJson(`${api}/contents/${encodePath(args.path)}`, {
+        method: 'PUT',
+        body: JSON.stringify(body)
+    });
+    if (!put.res.ok) throw new Error(`Upload failed: ${put.data.message || put.res.status}`);
+    return JSON.stringify({
+        status: 'uploaded', branch: args.branch, path: args.path,
+        sha: put.data.content && put.data.content.sha,
+        size_bytes: put.data.content && put.data.content.size,
+        url: put.data.content && put.data.content.html_url
+    });
 }
 
 function applyEdits(original, edits) {
@@ -1255,7 +1345,7 @@ async function handleMessage(msg) {
                     result: {
                         protocolVersion: SUPPORTED_VERSIONS.includes(requested) ? requested : SUPPORTED_VERSIONS[0],
                         capabilities: { tools: {} },
-                        serverInfo: { name: 'github-mcp-bridge', version: '2.2.0' }
+                        serverInfo: { name: 'github-mcp-bridge', version: '2.3.0' }
                     }
                 };
             }
@@ -1277,6 +1367,8 @@ async function handleMessage(msg) {
                     if (!GITHUB_PAT) throw new Error('GITHUB_PAT is not set on the server');
                     let text;
                     if (name === 'get_file_contents') text = await getFileContents(args);
+                    else if (name === 'download_file') text = await downloadFile(args);
+                    else if (name === 'upload_file') text = await uploadFile(args);
                     else if (name === 'create_pull_request') text = await createPullRequest(args);
                     else if (name === 'search_code') text = await searchCode(args);
                     else if (name === 'commit_files') text = await commitFiles(args);
