@@ -340,6 +340,12 @@ const TOOLS = [
         inputSchema: { type: 'object', properties: { owner: { type: 'string' }, repo: { type: 'string' }, run_id: { type: 'integer', description: 'Workflow run id to delete' } }, required: ['run_id'] }
     },
     {
+        name: 'squash_branch_history',
+        annotations: { title: 'Squash branch history to one commit', readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
+        description: 'Rewrites a branch as a single root commit containing the exact current tree; all prior history on the branch is discarded. Only works on repos in ALLOWED_REPOS.',
+        inputSchema: { type: 'object', properties: { owner: { type: 'string' }, repo: { type: 'string' }, branch: { type: 'string', description: 'Branch to squash (default: main)' }, commit_message: { type: 'string', description: 'Message for the new root commit' } } }
+    },
+    {
         name: 'create_pull_request',
         annotations: { title: 'Create pull request', readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
         description: 'Creates a new branch, changes one or more files, and opens ONE Pull Request (base defaults to main). Use "files": a list of {path, edits} to change several files at once (for example a Kotlin file and AndroidManifest.xml). Each edit is a {find, replace} snippet applied on the server; "find" must match the file exactly once. Only pass full "content" for new or small files.',
@@ -1278,6 +1284,29 @@ async function deleteWorkflowRun(args) {
     return JSON.stringify({ status: 'deleted', run_id: args.run_id });
 }
 
+async function squashBranchHistory(args) {
+    const { owner, repo } = resolveRepo(args);
+    const branch = args.branch || 'main';
+    const message = args.commit_message || `chore: squash ${branch} history into a single root commit`;
+    const api = `https://api.github.com/repos/${owner}/${repo}`;
+    const ref = await ghJson(`${api}/git/ref/heads/${encodePath(branch)}`);
+    if (!ref.res.ok) throw new Error(`Branch "${branch}": ${ref.data.message || ref.res.status}`);
+    const oldSha = ref.data.object.sha;
+    const head = await ghJson(`${api}/git/commits/${oldSha}`);
+    if (!head.res.ok) throw new Error(`Read HEAD commit: ${head.data.message || head.res.status}`);
+    const mk = await ghJson(`${api}/git/commits`, {
+        method: 'POST', headers: ghHeaders(),
+        body: JSON.stringify({ message, tree: head.data.tree.sha, parents: [] })
+    });
+    if (!mk.res.ok) throw new Error(`Create root commit: ${mk.data.message || mk.res.status}`);
+    const upd = await ghJson(`${api}/git/refs/heads/${encodePath(branch)}`, {
+        method: 'PATCH', headers: ghHeaders(),
+        body: JSON.stringify({ sha: mk.data.sha, force: true })
+    });
+    if (!upd.res.ok) throw new Error(`Move branch "${branch}": ${upd.data.message || upd.res.status}`);
+    return JSON.stringify({ status: 'squashed', branch, old_sha: oldSha, new_sha: mk.data.sha });
+}
+
 async function createPullRequest(args) {
     const { owner, repo } = resolveRepo(args);
     const api = `https://api.github.com/repos/${owner}/${repo}`;
@@ -1388,6 +1417,7 @@ async function handleMessage(msg) {
                     else if (name === 'list_releases') text = await listReleases(args);
                     else if (name === 'list_workflow_runs') text = await listWorkflowRuns(args);
                     else if (name === 'delete_workflow_run') text = await deleteWorkflowRun(args);
+                    else if (name === 'squash_branch_history') text = await squashBranchHistory(args);
                     else if (name === 'preview_bulk_rename') text = await previewBulkRename(args);
                     else if (name === 'apply_bulk_rename') text = await applyBulkRename(args);
                     else throw new Error(`Unknown tool: ${name}`);
