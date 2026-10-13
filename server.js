@@ -1345,7 +1345,7 @@ async function handleMessage(msg) {
                     result: {
                         protocolVersion: SUPPORTED_VERSIONS.includes(requested) ? requested : SUPPORTED_VERSIONS[0],
                         capabilities: { tools: {} },
-                        serverInfo: { name: 'github-mcp-bridge', version: '2.3.0' }
+                        serverInfo: { name: 'github-mcp-bridge', version: '2.4.0' }
                     }
                 };
             }
