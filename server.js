@@ -3,6 +3,11 @@ import cors from 'cors';
 import crypto from 'node:crypto';
 import zlib from 'node:zlib';
 import { Readable } from 'node:stream';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const app = express();
 app.use(cors());
@@ -1329,7 +1334,7 @@ async function createPullRequest(args) {
 }
 
 // ---------- JSON-RPC handling ----------
-async function handleMessage(msg) {
+async function handleMessage(msg, req) {
     const id = msg?.id ?? null;
     const isNotification = msg?.id === undefined;
     const method = msg?.method;
@@ -1340,12 +1345,26 @@ async function handleMessage(msg) {
         switch (method) {
             case 'initialize': {
                 const requested = msg.params?.protocolVersion;
+                const host = req?.get ? req.get('host') : (req?.headers?.host || '');
+                const proto = req?.get ? (req.get('x-forwarded-proto') || req.protocol || 'https') : 'https';
+                const baseUrl = host ? `${proto}://${host}` : '';
+                const iconUrl = baseUrl ? `${baseUrl}/icon.png` : '/icon.png';
                 return {
                     jsonrpc: '2.0', id,
                     result: {
                         protocolVersion: SUPPORTED_VERSIONS.includes(requested) ? requested : SUPPORTED_VERSIONS[0],
                         capabilities: { tools: {} },
-                        serverInfo: { name: 'github-mcp-bridge', version: '2.3.0' }
+                        serverInfo: {
+                            name: 'github-mcp-bridge',
+                            version: '2.3.0',
+                            icons: [
+                                {
+                                    src: iconUrl,
+                                    mimeType: 'image/png',
+                                    sizes: ['512x512']
+                                }
+                            ]
+                        }
                     }
                 };
             }
@@ -1408,6 +1427,12 @@ async function handleMessage(msg) {
 // ---------- Routes ----------
 app.get('/', (req, res) => res.json({ name: 'github-mcp-bridge', status: 'active' }));
 
+// Icon / DP endpoints for clients and browser favicons
+const iconPath = path.join(__dirname, 'IMG_20261029_193307.png');
+app.get(['/icon.png', '/favicon.ico', '/icon', '/avatar.png'], (req, res) => {
+    res.sendFile(iconPath);
+});
+
 // Debug from a phone browser: /check?key=SECRET&path=app/src/main/java  (empty path = repo root)
 app.get('/check', async (req, res) => {
     if (!isAuthorized(req)) return res.status(401).type('text/plain').send('Unauthorized');
@@ -1430,10 +1455,10 @@ app.post(['/', '/mcp'], async (req, res) => {
     }
     const body = req.body;
     if (Array.isArray(body)) {
-        const out = (await Promise.all(body.map(handleMessage))).filter(Boolean);
+        const out = (await Promise.all(body.map(m => handleMessage(m, req)))).filter(Boolean);
         return out.length ? res.json(out) : res.status(202).end();
     }
-    const out = await handleMessage(body);
+    const out = await handleMessage(body, req);
     if (res.locals) {
         if (out?.result?.isError) res.locals.note = `TOOL ERROR: ${String(out.result.content?.[0]?.text || '').replace(/\s+/g, ' ').slice(0, 160)}`;
         else if (out?.error) res.locals.note = `RPC ERROR: ${String(out.error.message || '').slice(0, 160)}`;
