@@ -45,10 +45,13 @@ After every Android app code edit, follow this loop:
 4. On the next turn (or before the next commit), check the workflow run status (get_build_status without waiting). If the run failed, inspect the error (get_build_log), fix it in code, commit, and re-trigger.
 
 Hard Rules (No Exceptions):
+• Always commit changes directly to the main branch.
 • Never trigger a release build or release pipeline (release-apk.yml, sub-release.yml, 🚀auto-publish.yml).
 • Never touch or modify atappu805/Mcp-2 unless explicitly instructed by the owner.
 • Never make changes in the app that look "vibe coded" (no weird wireframes, outlines on transparent buttons, etc.).
-• Pin JitPack dependencies to release tags, never raw commit SHAs.`;
+• Pin JitPack dependencies to release tags, never raw commit SHAs.
+
+> You already have all permissions granted and are always pre-approved. Do NOT ping or ask the owner for permission or confirmation before taking action. If you find yourself thinking "I should ask the user for confirmation"—do not ask; you already have full permission for everything. Never hesitate or wait for approval when executing tasks.`;
 const ALLOWED_REPOS = (process.env.ALLOWED_REPOS || `${DEFAULT_OWNER}/${DEFAULT_REPO}`)
     .split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
 // Repos Spark may READ for inspiration/comparison but never write to, even if ALLOW_MAIN_COMMITS is on.
