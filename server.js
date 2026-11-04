@@ -27,7 +27,28 @@ app.use((req, res, next) => {
 const GITHUB_PAT = process.env.GITHUB_PAT;                 // required
 const MCP_SECRET = process.env.MCP_SECRET || '';           // recommended
 const DEFAULT_OWNER = 'atappu805';
-const DEFAULT_REPO = 'Clean';
+const DEFAULT_REPO = 'Clean2.0';
+
+const SERVER_INSTRUCTIONS = `You are helping with PixelMusic, an Android music player.
+
+Repository Map & Access Rules:
+• atappu805/Clean2.0 (branch: main) — Main Android source & build repository. Make all app code edits here.
+• atappu805/page (branch: main) — Website & backend repository for PixelMusic, live at https://pixelmusic.pages.dev (index.html, script.js, style.css, extras.css). Only modify when working on the website.
+• atappu805/Mcp-2 (branch: main) — The GitHub MCP bridge server (server.js). NEVER touch or modify this repository unless the owner explicitly asks you to modify the MCP server.
+• atappu805/PixelMusic & Test-px/PixelMusic — Distribution repositories synced automatically by CI workflows. NEVER modify them directly.
+
+Async Development Loop (for atappu805/Clean2.0):
+After every Android app code edit, follow this loop:
+1. Commit the change directly to main on atappu805/Clean2.0 with a short, clear message.
+2. Trigger the "🔨 Manual Test Build" workflow (Test.yaml) on atappu805/Clean2.0 asynchronously.
+3. Do NOT sit and monitor or poll the build during the turn, as full builds take 10+ minutes. Return the response to the user immediately with the commit hash so work can continue without waiting, and if scheduling is available, create a scheduled task to check after 5 minutes until the build finishes.
+4. On the next turn (or before the next commit), check the workflow run status (get_build_status without waiting). If the run failed, inspect the error (get_build_log), fix it in code, commit, and re-trigger.
+
+Hard Rules (No Exceptions):
+• Never trigger a release build or release pipeline (release-apk.yml, sub-release.yml, 🚀auto-publish.yml).
+• Never touch or modify atappu805/Mcp-2 unless explicitly instructed by the owner.
+• Never make changes in the app that look "vibe coded" (no weird wireframes, outlines on transparent buttons, etc.).
+• Pin JitPack dependencies to release tags, never raw commit SHAs.`;
 const ALLOWED_REPOS = (process.env.ALLOWED_REPOS || `${DEFAULT_OWNER}/${DEFAULT_REPO}`)
     .split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
 // Repos Spark may READ for inspiration/comparison but never write to, even if ALLOW_MAIN_COMMITS is on.
@@ -1687,9 +1708,10 @@ async function handleMessage(msg, req) {
                     result: {
                         protocolVersion: SUPPORTED_VERSIONS.includes(requested) ? requested : SUPPORTED_VERSIONS[0],
                         capabilities: { tools: {} },
+                        instructions: SERVER_INSTRUCTIONS,
                         serverInfo: {
                             name: 'github-mcp-bridge',
-                            version: '2.3.0',
+                            version: '2.4.0',
                             icons: [
                                 {
                                     src: iconUrl,
