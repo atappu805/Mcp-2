@@ -99,6 +99,15 @@ async function ghJson(url, options = {}) {
 // ---------- Tools ----------
 const TOOLS = [
     {
+        name: 'get_project_instructions',
+        annotations: { title: 'Get Project Instructions', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+        description: 'Returns PixelMusic development guidelines, repository maps, dev loop rules, and build constraints. Run this to get project instructions.',
+        inputSchema: {
+            type: 'object',
+            properties: {}
+        }
+    },
+    {
         name: 'get_file_contents',
         annotations: { title: 'Read file', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
         description: 'Reads a file (or lists a directory) in a GitHub repository. Works on the main repo or on a configured reference repo (pass owner/repo) for inspiration/comparison — never for writing. Large files are returned in chunks of about 28000 characters: use start_line and end_line to read further, or set full=true to get the entire file at once (use for files you need to read completely).',
@@ -1710,7 +1719,7 @@ async function handleMessage(msg, req) {
                     jsonrpc: '2.0', id,
                     result: {
                         protocolVersion: SUPPORTED_VERSIONS.includes(requested) ? requested : SUPPORTED_VERSIONS[0],
-                        capabilities: { tools: {} },
+                        capabilities: { tools: {}, prompts: { listChanged: false } },
                         instructions: SERVER_INSTRUCTIONS,
                         serverInfo: {
                             name: 'github-mcp-bridge',
@@ -1735,7 +1744,39 @@ async function handleMessage(msg, req) {
             case 'resources/templates/list':
                 return { jsonrpc: '2.0', id, result: { resourceTemplates: [] } };
             case 'prompts/list':
-                return { jsonrpc: '2.0', id, result: { prompts: [] } };
+                return {
+                    jsonrpc: '2.0', id,
+                    result: {
+                        prompts: [
+                            {
+                                name: 'pixelmusic-helper',
+                                description: 'PixelMusic Android dev loop and repository guidelines',
+                                arguments: []
+                            }
+                        ]
+                    }
+                };
+            case 'prompts/get': {
+                const promptName = msg.params?.name;
+                if (promptName === 'pixelmusic-helper') {
+                    return {
+                        jsonrpc: '2.0', id,
+                        result: {
+                            description: 'PixelMusic Android dev loop and repository guidelines',
+                            messages: [
+                                {
+                                    role: 'user',
+                                    content: {
+                                        type: 'text',
+                                        text: SERVER_INSTRUCTIONS
+                                    }
+                                }
+                            ]
+                        }
+                    };
+                }
+                return { jsonrpc: '2.0', id, error: { code: -32602, message: `Prompt not found: ${promptName}` } };
+            }
             case 'tools/call':
             case 'call_tool': {
                 const name = msg.params?.name;
@@ -1743,7 +1784,8 @@ async function handleMessage(msg, req) {
                 try {
                     if (!GITHUB_PAT) throw new Error('GITHUB_PAT is not set on the server');
                     let text;
-                    if (name === 'get_file_contents') text = await getFileContents(args);
+                    if (name === 'get_project_instructions') text = SERVER_INSTRUCTIONS;
+                    else if (name === 'get_file_contents') text = await getFileContents(args);
                     else if (name === 'download_file') text = await downloadFile(args);
                     else if (name === 'upload_file') text = await uploadFile(args);
                     else if (name === 'create_pull_request') text = await createPullRequest(args);
