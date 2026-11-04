@@ -145,7 +145,7 @@ const TOOLS = [
     {
         name: 'commit_files',
         annotations: { title: 'Commit files to a branch', readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
-        description: 'Commits changes to one or more files directly to an EXISTING branch as a single commit, with no pull request. Use "files": a list of {path, edits} where each edit is a {find, replace} snippet (each "find" must match exactly once). Committing to the default branch (main) only works if the server owner enabled it; otherwise use create_pull_request.',
+        description: 'Commits changes to one or more files directly to an EXISTING branch as a single commit, with no pull request. Use "files": a list of {path, edits, content, delete} where each edit is a {find, replace} snippet (each "find" must match exactly once), or set delete: true to delete a file. Committing to the default branch (main) only works if the server owner enabled it; otherwise use create_pull_request.',
         inputSchema: {
             type: 'object',
             properties: {
@@ -166,7 +166,8 @@ const TOOLS = [
                                     required: ['find', 'replace']
                                 }
                             },
-                            content: { type: 'string', description: 'Full content (new or small files only)' }
+                            content: { type: 'string', description: 'Full content (new or small files only)' },
+                            delete: { type: 'boolean', description: 'Set true to delete this file in the commit' }
                         },
                         required: ['path']
                     }
@@ -174,6 +175,39 @@ const TOOLS = [
                 commit_message: { type: 'string' }
             },
             required: ['branch', 'files', 'commit_message']
+        }
+    },
+    {
+        name: 'delete_files',
+        annotations: { title: 'Delete files or folders', readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
+        description: 'Deletes one or more files or folders directly on an EXISTING branch as a single commit.',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                owner: { type: 'string' },
+                repo: { type: 'string' },
+                branch: { type: 'string', description: 'Existing branch to commit to (default branch if omitted)' },
+                paths: { type: 'array', items: { type: 'string' }, description: 'File or folder paths to delete' },
+                commit_message: { type: 'string', description: 'Optional commit message' }
+            },
+            required: ['paths']
+        }
+    },
+    {
+        name: 'move_file',
+        annotations: { title: 'Move or rename a file or folder', readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
+        description: 'Moves or renames a file or folder directly on an EXISTING branch as a single commit without re-uploading content.',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                owner: { type: 'string' },
+                repo: { type: 'string' },
+                branch: { type: 'string', description: 'Existing branch to commit to (default branch if omitted)' },
+                from_path: { type: 'string', description: 'Current file or folder path' },
+                to_path: { type: 'string', description: 'New file or folder path' },
+                commit_message: { type: 'string', description: 'Optional commit message' }
+            },
+            required: ['from_path', 'to_path']
         }
     },
     {
@@ -343,6 +377,72 @@ const TOOLS = [
         annotations: { title: 'Delete a workflow run', readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
         description: 'Deletes a GitHub Actions workflow run (and its logs) from the run history. Use list_workflow_runs to find run ids first.',
         inputSchema: { type: 'object', properties: { owner: { type: 'string' }, repo: { type: 'string' }, run_id: { type: 'integer', description: 'Workflow run id to delete' } }, required: ['run_id'] }
+    },
+    {
+        name: 'cancel_workflow_run',
+        annotations: { title: 'Cancel a workflow run', readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: true },
+        description: 'Cancels an in-progress or queued GitHub Actions workflow run.',
+        inputSchema: { type: 'object', properties: { owner: { type: 'string' }, repo: { type: 'string' }, run_id: { type: 'integer', description: 'Workflow run id to cancel' } }, required: ['run_id'] }
+    },
+    {
+        name: 'cleanup_workflow_runs',
+        annotations: { title: 'Bulk delete old workflow runs', readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
+        description: 'Bulk deletes completed workflow runs in one call, optionally keeping the most recent N runs or filtering by workflow/branch/status.',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                owner: { type: 'string' },
+                repo: { type: 'string' },
+                workflow: { type: 'string', description: 'Optional workflow name, file or id' },
+                branch: { type: 'string', description: 'Optional branch filter' },
+                status: { type: 'string', description: 'Optional status/conclusion filter (e.g. failure, completed)' },
+                keep_latest: { type: 'integer', description: 'Number of most recent completed runs to keep (default 0)' }
+            }
+        }
+    },
+    {
+        name: 'clear_actions_caches',
+        annotations: { title: 'Clear GitHub Actions caches', readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: true },
+        description: 'Lists and deletes all GitHub Actions caches in the repository (or filtered by key/branch) in a single call.',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                owner: { type: 'string' },
+                repo: { type: 'string' },
+                key: { type: 'string', description: 'Optional cache key prefix filter' },
+                ref: { type: 'string', description: 'Optional Git ref filter, e.g. refs/heads/main' }
+            }
+        }
+    },
+    {
+        name: 'delete_release',
+        annotations: { title: 'Delete a release and tag', readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
+        description: 'Deletes a GitHub release by tag name (and optionally removes its git tag too).',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                owner: { type: 'string' },
+                repo: { type: 'string' },
+                tag: { type: 'string', description: 'Release tag name to delete' },
+                delete_tag: { type: 'boolean', description: 'Also delete the underlying git tag (default true)' }
+            },
+            required: ['tag']
+        }
+    },
+    {
+        name: 'get_commit_diff',
+        annotations: { title: 'Read commit diff patches', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+        description: 'Returns the unified diff patch for a commit (all changed files, or filtered to a specific file path).',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                owner: { type: 'string' },
+                repo: { type: 'string' },
+                sha: { type: 'string', description: 'Commit SHA' },
+                path: { type: 'string', description: 'Optional file path substring filter' }
+            },
+            required: ['sha']
+        }
     },
     {
         name: 'create_pull_request',
@@ -664,6 +764,12 @@ async function planFiles(api, files, branch) {
         const existing = await readFile(api, filePath, branch);
         if (existing.ok && existing.isDir) throw new Error(`${f.path} is a directory, not a file`);
 
+        if (f.delete === true) {
+            if (!existing.ok) throw new Error(`Cannot delete: ${f.path} does not exist on ${branch}`);
+            planned.push({ path: f.path, filePath, delete: true, sha: existing.sha });
+            continue;
+        }
+
         let newContent;
         if (Array.isArray(f.edits) && f.edits.length > 0) {
             if (!existing.ok) throw new Error(`Cannot apply edits: ${f.path} does not exist on ${branch}`);
@@ -674,7 +780,7 @@ async function planFiles(api, files, branch) {
             }
             if (newContent === existing.text) throw new Error(`${f.path}: the edits produced no change`);
         } else {
-            if (typeof f.content !== 'string') throw new Error(`${f.path}: provide either "edits" or "content"`);
+            if (typeof f.content !== 'string') throw new Error(`${f.path}: provide "edits", "content", or "delete: true"`);
             newContent = f.content;
         }
         planned.push({ path: f.path, filePath, newContent, sha: existing.ok ? existing.sha : undefined });
@@ -709,7 +815,9 @@ async function commitFiles(args) {
         method: 'POST',
         body: JSON.stringify({
             base_tree: head.data.tree.sha,
-            tree: planned.map(p => ({ path: p.path.replace(/^\/+/, ''), mode: '100644', type: 'blob', content: p.newContent }))
+            tree: planned.map(p => p.delete
+                ? { path: p.path.replace(/^\/+/, ''), mode: '100644', type: 'blob', sha: null }
+                : { path: p.path.replace(/^\/+/, ''), mode: '100644', type: 'blob', content: p.newContent })
         })
     });
     if (!tree.res.ok) throw new Error(`Create tree: ${tree.data.message || tree.res.status}`);
@@ -726,10 +834,129 @@ async function commitFiles(args) {
     });
     if (!upd.res.ok) throw new Error(`Update branch: ${upd.data.message || upd.res.status}`);
 
+    repoCache = null;
     return JSON.stringify({
         status: 'committed', branch: args.branch, sha: commit.data.sha,
         url: `https://github.com/${owner}/${repo}/commit/${commit.data.sha}`,
         files: planned.map(p => p.path)
+    });
+}
+
+async function deleteFiles(args) {
+    const { owner, repo } = resolveRepo(args);
+    const api = `https://api.github.com/repos/${owner}/${repo}`;
+    const rawPaths = (Array.isArray(args.paths) ? args.paths : []).map(p => String(p).replace(/^\/+|\/+$/g, '')).filter(Boolean);
+    if (!rawPaths.length) throw new Error('paths is required (array of file or folder paths to delete)');
+
+    const info = await ghJson(api);
+    if (!info.res.ok) throw new Error(`Repo: ${info.data.message || info.res.status}`);
+    const branch = args.branch || info.data.default_branch;
+    if (branch === info.data.default_branch && process.env.ALLOW_MAIN_COMMITS !== 'true') {
+        throw new Error(`Direct commits to "${branch}" are disabled on this server. Ask the owner to set ALLOW_MAIN_COMMITS=true.`);
+    }
+
+    const ref = await ghJson(`${api}/git/ref/heads/${encodePath(branch)}`);
+    if (!ref.res.ok) throw new Error(`Branch "${branch}" not found`);
+    const headSha = ref.data.object.sha;
+    const head = await ghJson(`${api}/git/commits/${headSha}`);
+    if (!head.res.ok) throw new Error(`Read head commit: ${head.data.message || head.res.status}`);
+    const fullTree = await ghJson(`${api}/git/trees/${head.data.tree.sha}?recursive=1`);
+    if (!fullTree.res.ok) throw new Error(`Read tree: ${fullTree.data.message || fullTree.res.status}`);
+
+    const blobs = (fullTree.data.tree || []).filter(e => e.type === 'blob');
+    const toDelete = blobs.filter(e => rawPaths.some(p => e.path === p || e.path.startsWith(p + '/')));
+    if (!toDelete.length) throw new Error(`None of the specified paths exist on branch "${branch}": ${rawPaths.join(', ')}`);
+
+    const tree = await ghJson(`${api}/git/trees`, {
+        method: 'POST',
+        body: JSON.stringify({
+            base_tree: head.data.tree.sha,
+            tree: toDelete.map(e => ({ path: e.path, mode: e.mode || '100644', type: 'blob', sha: null }))
+        })
+    });
+    if (!tree.res.ok) throw new Error(`Create tree: ${tree.data.message || tree.res.status}`);
+
+    const message = args.commit_message || `chore: delete ${rawPaths.join(', ')}`;
+    const commit = await ghJson(`${api}/git/commits`, {
+        method: 'POST',
+        body: JSON.stringify({ message, tree: tree.data.sha, parents: [headSha] })
+    });
+    if (!commit.res.ok) throw new Error(`Create commit: ${commit.data.message || commit.res.status}`);
+
+    const upd = await ghJson(`${api}/git/refs/heads/${encodePath(branch)}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ sha: commit.data.sha, force: false })
+    });
+    if (!upd.res.ok) throw new Error(`Update branch: ${upd.data.message || upd.res.status}`);
+
+    repoCache = null;
+    return JSON.stringify({
+        status: 'deleted', branch, sha: commit.data.sha,
+        url: `https://github.com/${owner}/${repo}/commit/${commit.data.sha}`,
+        deleted_files: toDelete.map(e => e.path)
+    });
+}
+
+async function moveFile(args) {
+    const { owner, repo } = resolveRepo(args);
+    const api = `https://api.github.com/repos/${owner}/${repo}`;
+    const fromPath = String(args.from_path || '').replace(/^\/+|\/+$/g, '');
+    const toPath = String(args.to_path || '').replace(/^\/+|\/+$/g, '');
+    if (!fromPath || !toPath) throw new Error('from_path and to_path are required');
+    if (fromPath === toPath) throw new Error('from_path and to_path must be different');
+
+    const info = await ghJson(api);
+    if (!info.res.ok) throw new Error(`Repo: ${info.data.message || info.res.status}`);
+    const branch = args.branch || info.data.default_branch;
+    if (branch === info.data.default_branch && process.env.ALLOW_MAIN_COMMITS !== 'true') {
+        throw new Error(`Direct commits to "${branch}" are disabled on this server. Ask the owner to set ALLOW_MAIN_COMMITS=true.`);
+    }
+
+    const ref = await ghJson(`${api}/git/ref/heads/${encodePath(branch)}`);
+    if (!ref.res.ok) throw new Error(`Branch "${branch}" not found`);
+    const headSha = ref.data.object.sha;
+    const head = await ghJson(`${api}/git/commits/${headSha}`);
+    if (!head.res.ok) throw new Error(`Read head commit: ${head.data.message || head.res.status}`);
+    const fullTree = await ghJson(`${api}/git/trees/${head.data.tree.sha}?recursive=1`);
+    if (!fullTree.res.ok) throw new Error(`Read tree: ${fullTree.data.message || fullTree.res.status}`);
+
+    const blobs = (fullTree.data.tree || []).filter(e => e.type === 'blob');
+    const matched = blobs.filter(e => e.path === fromPath || e.path.startsWith(fromPath + '/'));
+    if (!matched.length) throw new Error(`Path "${fromPath}" not found on branch "${branch}"`);
+
+    const treeEntries = [];
+    const moved = [];
+    for (const e of matched) {
+        const dest = e.path === fromPath ? toPath : toPath + e.path.slice(fromPath.length);
+        treeEntries.push({ path: e.path, mode: e.mode || '100644', type: 'blob', sha: null });
+        treeEntries.push({ path: dest, mode: e.mode || '100644', type: 'blob', sha: e.sha });
+        moved.push({ from: e.path, to: dest });
+    }
+
+    const tree = await ghJson(`${api}/git/trees`, {
+        method: 'POST',
+        body: JSON.stringify({ base_tree: head.data.tree.sha, tree: treeEntries })
+    });
+    if (!tree.res.ok) throw new Error(`Create tree: ${tree.data.message || tree.res.status}`);
+
+    const message = args.commit_message || `chore: move ${fromPath} to ${toPath}`;
+    const commit = await ghJson(`${api}/git/commits`, {
+        method: 'POST',
+        body: JSON.stringify({ message, tree: tree.data.sha, parents: [headSha] })
+    });
+    if (!commit.res.ok) throw new Error(`Create commit: ${commit.data.message || commit.res.status}`);
+
+    const upd = await ghJson(`${api}/git/refs/heads/${encodePath(branch)}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ sha: commit.data.sha, force: false })
+    });
+    if (!upd.res.ok) throw new Error(`Update branch: ${upd.data.message || upd.res.status}`);
+
+    repoCache = null;
+    return JSON.stringify({
+        status: 'moved', branch, sha: commit.data.sha,
+        url: `https://github.com/${owner}/${repo}/commit/${commit.data.sha}`,
+        moved
     });
 }
 
@@ -1283,6 +1510,112 @@ async function deleteWorkflowRun(args) {
     return JSON.stringify({ status: 'deleted', run_id: args.run_id });
 }
 
+async function cancelWorkflowRun(args) {
+    const { owner, repo } = resolveRepo(args);
+    if (!args.run_id) throw new Error('run_id is required');
+    const api = `https://api.github.com/repos/${owner}/${repo}`;
+    const res = await fetch(`${api}/actions/runs/${encodeURIComponent(args.run_id)}/cancel`, { method: 'POST', headers: ghHeaders() });
+    if (res.status !== 202) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error(`Cancel workflow run ${args.run_id}: ${d.message || res.status}`);
+    }
+    return JSON.stringify({ status: 'cancel_requested', run_id: args.run_id });
+}
+
+async function cleanupWorkflowRuns(args) {
+    const { owner, repo } = resolveRepo(args);
+    const api = `https://api.github.com/repos/${owner}/${repo}`;
+    let base = `${api}/actions/runs`;
+    if (args.workflow) base = `${api}/actions/workflows/${(await resolveWorkflow(api, args.workflow)).id}/runs`;
+    let url = `${base}?per_page=100`;
+    if (args.branch) url += `&branch=${encodeURIComponent(args.branch)}`;
+    if (args.status) url += `&status=${encodeURIComponent(args.status)}`;
+
+    const { res, data } = await ghJson(url);
+    if (!res.ok) throw new Error(`List workflow runs: ${data.message || res.status}`);
+    const completed = (data.workflow_runs || []).filter(r => r.status === 'completed');
+    const keep = Math.max(parseInt(args.keep_latest, 10) || 0, 0);
+    const targets = completed.slice(keep);
+
+    let deleted = 0;
+    const errors = [];
+    for (const r of targets) {
+        const del = await fetch(`${api}/actions/runs/${r.id}`, { method: 'DELETE', headers: ghHeaders() });
+        if (del.status === 204) deleted++;
+        else errors.push({ run_id: r.id, status: del.status });
+    }
+    return JSON.stringify({ status: 'cleaned', deleted_count: deleted, kept_count: Math.min(completed.length, keep), errors: errors.length ? errors : undefined });
+}
+
+async function clearActionsCaches(args) {
+    const { owner, repo } = resolveRepo(args);
+    const api = `https://api.github.com/repos/${owner}/${repo}`;
+    let deleted = 0;
+    const errors = [];
+
+    for (let pass = 0; pass < 10; pass++) {
+        let url = `${api}/actions/caches?per_page=100`;
+        if (args.key) url += `&key=${encodeURIComponent(args.key)}`;
+        if (args.ref) url += `&ref=${encodeURIComponent(args.ref)}`;
+        const { res, data } = await ghJson(url);
+        if (!res.ok) throw new Error(`List caches: ${data.message || res.status}`);
+        const caches = data.actions_caches || [];
+        if (!caches.length) break;
+
+        let passDeleted = 0;
+        for (const c of caches) {
+            const del = await fetch(`${api}/actions/caches/${c.id}`, { method: 'DELETE', headers: ghHeaders() });
+            if (del.status === 204) { deleted++; passDeleted++; }
+            else errors.push({ id: c.id, key: c.key, status: del.status });
+        }
+        if (!passDeleted) break;
+    }
+    return JSON.stringify({ status: 'cleared', deleted_count: deleted, errors: errors.length ? errors : undefined });
+}
+
+async function deleteRelease(args) {
+    const { owner, repo } = resolveRepo(args);
+    if (!args.tag) throw new Error('tag is required');
+    const api = `https://api.github.com/repos/${owner}/${repo}`;
+    const rel = await ghJson(`${api}/releases/tags/${encodeURIComponent(args.tag)}`);
+    if (!rel.res.ok) throw new Error(`Release for tag "${args.tag}": ${rel.data.message || rel.res.status}`);
+
+    const del = await fetch(`${api}/releases/${rel.data.id}`, { method: 'DELETE', headers: ghHeaders() });
+    if (del.status !== 204) {
+        const d = await del.json().catch(() => ({}));
+        throw new Error(`Delete release "${args.tag}": ${d.message || del.status}`);
+    }
+    let tagDeleted = false;
+    if (args.delete_tag !== false) {
+        const td = await fetch(`${api}/git/refs/tags/${encodePath(args.tag)}`, { method: 'DELETE', headers: ghHeaders() });
+        tagDeleted = td.status === 204;
+    }
+    return JSON.stringify({ status: 'deleted', tag: args.tag, release_id: rel.data.id, tag_deleted: tagDeleted });
+}
+
+async function getCommitDiff(args) {
+    const { owner, repo } = resolveRepo(args, { allowReference: true });
+    if (!args.sha) throw new Error('sha is required');
+    const api = `https://api.github.com/repos/${owner}/${repo}`;
+    const { res, data } = await ghJson(`${api}/commits/${encodeURIComponent(args.sha)}`);
+    if (!res.ok) throw new Error(`Commit ${args.sha}: ${data.message || res.status}`);
+
+    const pathFilter = args.path ? String(args.path).toLowerCase() : '';
+    const files = (data.files || []).filter(f => !pathFilter || f.filename.toLowerCase().includes(pathFilter));
+    const out = [
+        `[commit ${data.sha.slice(0, 7)} by ${data.commit.author?.name || 'unknown'} on ${data.commit.author?.date || ''}]`,
+        `Message: ${data.commit.message}`,
+        `Files shown: ${files.length} of ${(data.files || []).length}`
+    ];
+    for (const f of files) {
+        out.push(`\n--- ${f.filename} (${f.status}, +${f.additions}/-${f.deletions}) ---`);
+        out.push(f.patch || '(binary file or diff too large)');
+    }
+    let text = out.join('\n');
+    if (text.length > MAX_CHARS) text = text.slice(0, MAX_CHARS) + '\n[diff truncated, pass "path" to filter to a specific file]';
+    return text;
+}
+
 async function createPullRequest(args) {
     const { owner, repo } = resolveRepo(args);
     const api = `https://api.github.com/repos/${owner}/${repo}`;
@@ -1391,11 +1724,14 @@ async function handleMessage(msg, req) {
                     else if (name === 'create_pull_request') text = await createPullRequest(args);
                     else if (name === 'search_code') text = await searchCode(args);
                     else if (name === 'commit_files') text = await commitFiles(args);
+                    else if (name === 'delete_files') text = await deleteFiles(args);
+                    else if (name === 'move_file') text = await moveFile(args);
                     else if (name === 'run_workflow') text = await runWorkflow(args);
                     else if (name === 'get_build_status') text = await getBuildStatus(args);
                     else if (name === 'get_build_log') text = await getBuildLog(args);
                     else if (name === 'list_recent_commits') text = await listRecentCommits(args);
                     else if (name === 'get_commit') text = await getCommit(args);
+                    else if (name === 'get_commit_diff') text = await getCommitDiff(args);
                     else if (name === 'list_branches') text = await listBranches(args);
                     else if (name === 'delete_branch') text = await deleteBranch(args);
                     else if (name === 'list_pull_requests') text = await listPullRequests(args);
@@ -1405,8 +1741,12 @@ async function handleMessage(msg, req) {
                     else if (name === 'create_issue') text = await createIssue(args);
                     else if (name === 'add_comment') text = await addComment(args);
                     else if (name === 'list_releases') text = await listReleases(args);
+                    else if (name === 'delete_release') text = await deleteRelease(args);
                     else if (name === 'list_workflow_runs') text = await listWorkflowRuns(args);
                     else if (name === 'delete_workflow_run') text = await deleteWorkflowRun(args);
+                    else if (name === 'cancel_workflow_run') text = await cancelWorkflowRun(args);
+                    else if (name === 'cleanup_workflow_runs') text = await cleanupWorkflowRuns(args);
+                    else if (name === 'clear_actions_caches') text = await clearActionsCaches(args);
                     else if (name === 'preview_bulk_rename') text = await previewBulkRename(args);
                     else if (name === 'apply_bulk_rename') text = await applyBulkRename(args);
                     else throw new Error(`Unknown tool: ${name}`);
