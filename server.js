@@ -24,23 +24,24 @@ app.use((req, res, next) => {
 });
 
 // ---------- Config (set these in Render > Environment) ----------
-const GITHUB_PAT = process.env.GITHUB_PAT;                 // required
+const GITHUB_PAT = process.env.GITHUB_PAT;                 // default / atappu805 PAT
+const ABHIJAT_GITHUB_PAT = process.env.ABHIJAT_GITHUB_PAT || process.env.GITHUB_PAT_ABHIJAT || '';
 const MCP_SECRET = process.env.MCP_SECRET || '';           // recommended
-const DEFAULT_OWNER = 'atappu805';
-const DEFAULT_REPO = 'Clean2.0';
+const DEFAULT_OWNER = 'ABHIJAT-DEV';
+const DEFAULT_REPO = 'PM';
 
 const SERVER_INSTRUCTIONS = `You are helping with PixelMusic, an Android music player.
 
 Repository Map & Access Rules:
-• atappu805/Clean2.0 (branch: main) — Main Android source & build repository. Make all app code edits here.
+• ABHIJAT-DEV/PM (branch: main) — Main Android source & build repository. Make all app code edits here.
 • atappu805/page (branch: main) — Website & backend repository for PixelMusic, live at https://pixelmusic.pages.dev (index.html, script.js, style.css, extras.css). Only modify when working on the website.
 • atappu805/Mcp-2 (branch: main) — The GitHub MCP bridge server (server.js). NEVER touch or modify this repository unless the owner explicitly asks you to modify the MCP server.
 • atappu805/PixelMusic & Test-px/PixelMusic — Distribution repositories synced automatically by CI workflows. NEVER modify them directly.
 
-Async Development Loop (for atappu805/Clean2.0):
+Async Development Loop (for ABHIJAT-DEV/PM):
 After every Android app code edit, follow this loop:
-1. Commit the change directly to main on atappu805/Clean2.0 with a short, clear message.
-2. Trigger the "🔨 Manual Test Build" workflow (Test.yaml) on atappu805/Clean2.0 asynchronously.
+1. Commit the change directly to main on ABHIJAT-DEV/PM with a short, clear message.
+2. Trigger the "🔨 Manual Test Build" workflow (Test.yaml) on ABHIJAT-DEV/PM asynchronously.
 3. Do NOT sit and monitor or poll the build during the turn, as full builds take 10+ minutes. Return the response to the user immediately with the commit hash so work can continue without waiting, and if scheduling is available, create a scheduled task to check after 5 minutes until the build finishes.
 4. On the next turn (or before the next commit), check the workflow run status (get_build_status without waiting). If the run failed, inspect the error (get_build_log), fix it in code, commit, and re-trigger.
 
@@ -60,8 +61,20 @@ const REFERENCE_REPOS = (process.env.REFERENCE_REPOS || '')
 const SUPPORTED_VERSIONS = ['2025-06-18', '2025-03-26', '2024-11-05'];
 
 // ---------- Helpers ----------
-const ghHeaders = (accept = 'application/vnd.github+json') => ({
-    'Authorization': `Bearer ${GITHUB_PAT}`,
+function getPatForUrlOrOwner(urlOrOwner = '') {
+    const s = String(urlOrOwner);
+    const m = s.match(/api\.github\.com\/repos\/([^/]+)\//i);
+    const owner = (m ? m[1] : s).toLowerCase();
+    if (owner === 'abhijat-dev') {
+        if (!ABHIJAT_GITHUB_PAT) throw new Error('ABHIJAT_GITHUB_PAT is not set on the server for ABHIJAT-DEV repositories');
+        return ABHIJAT_GITHUB_PAT;
+    }
+    if (!GITHUB_PAT) throw new Error('GITHUB_PAT is not set on the server');
+    return GITHUB_PAT;
+}
+
+const ghHeaders = (accept = 'application/vnd.github+json', urlOrOwner = DEFAULT_OWNER) => ({
+    'Authorization': `Bearer ${getPatForUrlOrOwner(urlOrOwner)}`,
     'User-Agent': 'Render-Gemini-MCP',
     'Accept': accept,
     'Content-Type': 'application/json'
@@ -91,7 +104,7 @@ function resolveRepo(args, { allowReference } = {}) {
 }
 
 async function ghJson(url, options = {}) {
-    const res = await fetch(url, { headers: ghHeaders(), ...options });
+    const res = await fetch(url, { headers: ghHeaders('application/vnd.github+json', url), ...options });
     const data = await res.json().catch(() => ({}));
     return { res, data };
 }
@@ -566,7 +579,7 @@ async function readFile(api, filePath, ref) {
         return { ok: true, sha: data.sha, text: Buffer.from(data.content, 'base64').toString('utf8') };
     }
     // Files over 1 MB come back without inline content, so fetch them raw
-    const raw = await fetch(url, { headers: ghHeaders('application/vnd.github.raw+json') });
+    const raw = await fetch(url, { headers: ghHeaders('application/vnd.github.raw+json', url) });
     if (!raw.ok) throw new Error(`GitHub returned ${raw.status} for raw file`);
     return { ok: true, sha: data.sha, text: await raw.text() };
 }
@@ -692,7 +705,7 @@ async function loadRepoFiles(owner, repo, ref) {
     if (repoCache && repoCache.key === key && Date.now() - repoCache.time < CACHE_TTL_MS) return repoCache.files;
 
     const api = `https://api.github.com/repos/${owner}/${repo}`;
-    const res = await fetch(`${api}/tarball${ref ? '/' + encodePath(ref) : ''}`, { headers: ghHeaders() });
+    const res = await fetch(`${api}/tarball${ref ? '/' + encodePath(ref) : ''}`, { headers: ghHeaders('application/vnd.github+json', api) });
     if (!res.ok || !res.body) throw new Error(`GitHub ${res.status} while downloading the repo archive`);
 
     const it = Readable.fromWeb(res.body).pipe(zlib.createGunzip())[Symbol.asyncIterator]();
@@ -1031,7 +1044,7 @@ async function runWorkflow(args) {
 
     const startedAt = Date.now();
     const disp = await fetch(`${api}/actions/workflows/${wf.id}/dispatches`, {
-        method: 'POST', headers: ghHeaders(), body: JSON.stringify({ ref, inputs: args.inputs || {} })
+        method: 'POST', headers: ghHeaders('application/vnd.github+json', api), body: JSON.stringify({ ref, inputs: args.inputs || {} })
     });
     if (disp.status !== 204) {
         const d = await disp.json().catch(() => ({}));
@@ -1133,7 +1146,7 @@ async function getBuildLog(args) {
 
     const out = [`[run ${run.id} on ${run.head_branch} @ ${(run.head_sha || '').slice(0, 7)}: ${run.conclusion}]`];
     for (const job of targets.slice(0, 2)) {
-        const lr = await fetch(`${api}/actions/jobs/${job.id}/logs`, { headers: ghHeaders() });
+        const lr = await fetch(`${api}/actions/jobs/${job.id}/logs`, { headers: ghHeaders('application/vnd.github+json', api) });
         if (!lr.ok) throw new Error(`Job log ${lr.status} (does the token have Actions read access?)`);
         const lines = (await lr.text()).split('\n').map(l =>
             l.replace(LOG_TS, '').replace(LOG_ANSI, '').replace(/\r$/, '')
@@ -1420,7 +1433,7 @@ async function deleteBranch(args) {
     const info = await ghJson(api);
     if (!info.res.ok) throw new Error(`Repo: ${info.data.message || info.res.status}`);
     if (args.branch === info.data.default_branch) throw new Error(`Refusing to delete the default branch "${args.branch}"`);
-    const del = await fetch(`${api}/git/refs/heads/${encodePath(args.branch)}`, { method: 'DELETE', headers: ghHeaders() });
+    const del = await fetch(`${api}/git/refs/heads/${encodePath(args.branch)}`, { method: 'DELETE', headers: ghHeaders('application/vnd.github+json', api) });
     if (del.status !== 204) {
         const d = await del.json().catch(() => ({}));
         throw new Error(`Delete branch "${args.branch}": ${d.message || del.status}`);
@@ -1535,7 +1548,7 @@ async function deleteWorkflowRun(args) {
     const { owner, repo } = resolveRepo(args);
     if (!args.run_id) throw new Error('run_id is required');
     const api = `https://api.github.com/repos/${owner}/${repo}`;
-    const del = await fetch(`${api}/actions/runs/${encodeURIComponent(args.run_id)}`, { method: 'DELETE', headers: ghHeaders() });
+    const del = await fetch(`${api}/actions/runs/${encodeURIComponent(args.run_id)}`, { method: 'DELETE', headers: ghHeaders('application/vnd.github+json', api) });
     if (del.status !== 204) {
         const d = await del.json().catch(() => ({}));
         throw new Error(`Delete workflow run ${args.run_id}: ${d.message || del.status}`);
@@ -1547,7 +1560,7 @@ async function cancelWorkflowRun(args) {
     const { owner, repo } = resolveRepo(args);
     if (!args.run_id) throw new Error('run_id is required');
     const api = `https://api.github.com/repos/${owner}/${repo}`;
-    const res = await fetch(`${api}/actions/runs/${encodeURIComponent(args.run_id)}/cancel`, { method: 'POST', headers: ghHeaders() });
+    const res = await fetch(`${api}/actions/runs/${encodeURIComponent(args.run_id)}/cancel`, { method: 'POST', headers: ghHeaders('application/vnd.github+json', api) });
     if (res.status !== 202) {
         const d = await res.json().catch(() => ({}));
         throw new Error(`Cancel workflow run ${args.run_id}: ${d.message || res.status}`);
@@ -1573,7 +1586,7 @@ async function cleanupWorkflowRuns(args) {
     let deleted = 0;
     const errors = [];
     for (const r of targets) {
-        const del = await fetch(`${api}/actions/runs/${r.id}`, { method: 'DELETE', headers: ghHeaders() });
+        const del = await fetch(`${api}/actions/runs/${r.id}`, { method: 'DELETE', headers: ghHeaders('application/vnd.github+json', api) });
         if (del.status === 204) deleted++;
         else errors.push({ run_id: r.id, status: del.status });
     }
@@ -1597,7 +1610,7 @@ async function clearActionsCaches(args) {
 
         let passDeleted = 0;
         for (const c of caches) {
-            const del = await fetch(`${api}/actions/caches/${c.id}`, { method: 'DELETE', headers: ghHeaders() });
+            const del = await fetch(`${api}/actions/caches/${c.id}`, { method: 'DELETE', headers: ghHeaders('application/vnd.github+json', api) });
             if (del.status === 204) { deleted++; passDeleted++; }
             else errors.push({ id: c.id, key: c.key, status: del.status });
         }
@@ -1613,14 +1626,14 @@ async function deleteRelease(args) {
     const rel = await ghJson(`${api}/releases/tags/${encodeURIComponent(args.tag)}`);
     if (!rel.res.ok) throw new Error(`Release for tag "${args.tag}": ${rel.data.message || rel.res.status}`);
 
-    const del = await fetch(`${api}/releases/${rel.data.id}`, { method: 'DELETE', headers: ghHeaders() });
+    const del = await fetch(`${api}/releases/${rel.data.id}`, { method: 'DELETE', headers: ghHeaders('application/vnd.github+json', api) });
     if (del.status !== 204) {
         const d = await del.json().catch(() => ({}));
         throw new Error(`Delete release "${args.tag}": ${d.message || del.status}`);
     }
     let tagDeleted = false;
     if (args.delete_tag !== false) {
-        const td = await fetch(`${api}/git/refs/tags/${encodePath(args.tag)}`, { method: 'DELETE', headers: ghHeaders() });
+        const td = await fetch(`${api}/git/refs/tags/${encodePath(args.tag)}`, { method: 'DELETE', headers: ghHeaders('application/vnd.github+json', api) });
         tagDeleted = td.status === 204;
     }
     return JSON.stringify({ status: 'deleted', tag: args.tag, release_id: rel.data.id, tag_deleted: tagDeleted });
@@ -1782,7 +1795,7 @@ async function handleMessage(msg, req) {
                 const name = msg.params?.name;
                 const args = msg.params?.arguments || {};
                 try {
-                    if (!GITHUB_PAT) throw new Error('GITHUB_PAT is not set on the server');
+                    if (!GITHUB_PAT && !ABHIJAT_GITHUB_PAT) throw new Error('Neither GITHUB_PAT nor ABHIJAT_GITHUB_PAT is set on the server');
                     let text;
                     if (name === 'get_project_instructions') text = SERVER_INSTRUCTIONS;
                     else if (name === 'get_file_contents') text = await getFileContents(args);
@@ -1844,7 +1857,7 @@ app.get(['/icon.png', '/favicon.ico', '/icon', '/avatar.png'], (req, res) => {
 app.get('/check', async (req, res) => {
     if (!isAuthorized(req)) return res.status(401).type('text/plain').send('Unauthorized');
     try {
-        if (!GITHUB_PAT) throw new Error('GITHUB_PAT is not set on the server');
+        if (!GITHUB_PAT && !ABHIJAT_GITHUB_PAT) throw new Error('Neither GITHUB_PAT nor ABHIJAT_GITHUB_PAT is set on the server');
         const text = await getFileContents({ path: req.query.path || '' });
         res.type('text/plain').send(text.slice(0, 3000));
     } catch (err) {
@@ -1877,6 +1890,7 @@ const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => {
     console.log(`Native MCP server running on port ${PORT}`);
     if (!GITHUB_PAT) console.warn('WARNING: GITHUB_PAT is not set');
+    if (!ABHIJAT_GITHUB_PAT) console.warn('WARNING: ABHIJAT_GITHUB_PAT is not set');
     if (!MCP_SECRET) console.warn('WARNING: MCP_SECRET is not set, /mcp is open to anyone with the URL');
 });
 
