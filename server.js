@@ -42,7 +42,7 @@ Async Development Loop (for ABHIJAT-DEV/PM):
 After every Android app code edit, follow this loop:
 1. Commit the change directly to main on ABHIJAT-DEV/PM with a short, clear message.
 2. Trigger the "🔨 Manual Test Build" workflow (Test.yaml) on ABHIJAT-DEV/PM asynchronously.
-3. Do NOT sit and monitor or poll the build during the turn, as full builds take 10+ minutes. Return the response to the user immediately with the commit hash so work can continue without waiting, and if scheduling is available, create a scheduled task to check after 5 minutes until the build finishes.
+3. Do NOT sit and monitor or poll the build during the turn, as full builds take 10+ minutes. Return the response to the user immediately with the commit hash so work can continue without waiting, and if scheduling is available, create a scheduled task to check after 5 minutes and come back with a short progress or description .
 4. On the next turn (or before the next commit), check the workflow run status (get_build_status without waiting). If the run failed, inspect the error (get_build_log), fix it in code, commit, and re-trigger.
 
 Hard Rules (No Exceptions):
